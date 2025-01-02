@@ -1,3 +1,4 @@
+typeguard
 numpy
 torch
 pillow
@@ -10,3 +11,5 @@ pyyaml
 trimesh
 yourdfpy
 pyglet<2
+websockets==13.1
+roboticstoolbox-python[collision]
