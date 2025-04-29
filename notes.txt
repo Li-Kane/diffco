@@ -1,0 +1,13 @@
+install with 
+create conda environment w/ python 3.12
+
+pip install -r requirements.txt
+pip install -e .
+
+install ompl python 3.12 from (https://github.com/ompl/ompl/releases/tag/prerelease)[https://github.com/ompl/ompl/releases/tag/prerelease]
+
+pip install ompl.whl
+
+pip install ipykernel
+
+everything works!

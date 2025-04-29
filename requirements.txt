@@ -1,4 +1,5 @@
-numpy
+typeguard
+numpy<2
 torch
 pillow
 matplotlib
