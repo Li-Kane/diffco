@@ -7,8 +7,9 @@ from mani_skill.envs.sapien_env import BaseEnv
 from mplib.pymp import Pose
 from .robot_interface_base import RobotInterfaceBase
 from gymnasium.core import Env
+import torch
 
-class ManiskillEnv(RobotInterfaceBase):
+class ManiskillRobot(RobotInterfaceBase):
     def __init__(
             self,
             name='',
@@ -32,8 +33,8 @@ class ManiskillEnv(RobotInterfaceBase):
         self.planner = mplib.Planner(
             urdf=urdf_path,
             srdf=srdf_path,
-            user_link_names=[link.get_name() for link in self.robot.get_links()],
-            user_joint_names=[joint.get_name() for joint in self.robot.get_active_joints()],
+            user_link_names=[link.name for link in self.robot.links],
+            user_joint_names=[joint.name for joint in self.robot.active_joints],
             move_group=move_group,
         )
         sapien_pose : sapien.Pose = to_sapien_pose(self.robot.pose)
@@ -43,7 +44,6 @@ class ManiskillEnv(RobotInterfaceBase):
         # setup environment point clouds
         collision_pts = np.ndarray((0, 3))
         for actor in base_env.scene.actors.values():
-            print(actor.name)
             for mesh in actor.get_collision_meshes(to_world_frame=True):
                 pts, _ = trimesh.sample.sample_surface(mesh, int(mesh.area * 1000))
                 collision_pts = np.vstack((collision_pts, pts))
@@ -63,29 +63,38 @@ class ManiskillEnv(RobotInterfaceBase):
     # return num_configs amount of random configurations
     # which is an array of shape (num_configs, num_dofs)
     def rand_configs(self, num_configs):
-        return np.random.rand(num_configs, len(self.joint_limits)) * (self.joint_limits[:, 1] - self.joint_limits[:, 0]) + self.joint_limits[:, 0]
+        rand = torch.rand(num_configs, len(self.joint_limits), device=self._device)
+        return torch.tensor(rand * (self.joint_limits[:, 1] - self.joint_limits[:, 0]) + self.joint_limits[:, 0], dtype=torch.float32)
 
     # for q = [batch_size x n_dofs], return a list of [batch_size] bools
     # indicating whether each configuration is in collision
-    def collision(self, q):
-        return [(len(self.planner.check_for_self_collision(state=qpos)) > 0 or len(self.planner.check_for_env_collision(state=qpos)) > 0) for qpos in q]
+    def collision(self, q, other=None):
+        return torch.tensor([
+            1.0 if (len(self.planner.check_for_self_collision(state=qpos)) > 0 or 
+                len(self.planner.check_for_env_collision(state=qpos)) > 0) else -1
+            for qpos in q
+        ])
 
-    # for q = [batch_size x n_dofs], return a dictionary of
+    # for q = [batch_size x n_dofs], return a dict of
     # {link_name: [translation, rotation]} for each link
-    # where translation is of shape (batch_size, 3,) and rotation is of shape (batch_size, 4,)
+    # where translation is of shape (batch_size, 3,) and rotation is of shape (batch_size, 9,)
+    # return (num_configs, num_joints, 3) tensor
     def compute_forward_kinematics_all_links(self, q, return_collision=False):
+        if return_collision:
+            raise NotImplementedError('Collision checking not implemented for forward kinematics')
+        batch_size = q.shape[0]
         # initialize our dictionary
         link_poses = {}
-        model = self.planner.pinocchio_model
         for link_name in self.planner.link_name_2_idx:
-            link_poses[link_name] = [np.empty((0, 3)), np.empty((0, 4))]
-        for qpos in q:
-            model.compute_forward_kinematics(qpos)
+            link_poses[link_name] = (torch.empty(batch_size, 3), torch.empty(batch_size, 9))
+        model = self.planner.pinocchio_model
+        for i in range(batch_size):
+            model.compute_forward_kinematics(q[i])
             for link_name in self.planner.link_name_2_idx:
                 pose = model.get_link_pose(self.planner.link_name_2_idx[link_name])
-                link_poses[link_name][0] = np.vstack((link_poses[link_name][0], pose.p))
-                link_poses[link_name][1] = np.vstack((link_poses[link_name][1], pose.q))
-        return link_poses
+                link_poses[link_name][0][i] = torch.tensor(pose.p, dtype=torch.float32)
 
-# return collisions?
-# rotation is a quaternion of 3x3 matrix?
+                # trans_matrix = pose.to_transformation_matrix()
+                # rotation = torch.tensor(trans_matrix[:3,:3])
+                # link_poses[link_name][1][i] = torch.flatten(rotation)
+        return link_poses

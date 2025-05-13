@@ -11,7 +11,7 @@ from functools import partial
 
 import diffco
 from diffco import model, kernel
-from diffco.collision_interfaces import RobotInterfaceBase, URDFRobot, MultiURDFRobot, robot_description_folder, ROSRobotEnv, CuRoboRobot, CuRoboCollisionWorldEnv
+from diffco.collision_interfaces import RobotInterfaceBase, URDFRobot, MultiURDFRobot, robot_description_folder, ROSRobotEnv, CuRoboRobot, CuRoboCollisionWorldEnv, ManiskillRobot 
 from diffco.collision_interfaces import ShapeEnv, PCDEnv
 from diffco.kernel_perceptrons import Perceptron, DiffCo, DiffCoBeta, MultiDiffCo
 try:
@@ -352,6 +352,9 @@ class ForwardKinematicsDiffCo(RBFDiffCo, CollisionChecker):
             self.tensorized_fkine = self.tensorized_fkine_multi_robot
         elif isinstance(self.robot, CuRoboRobot):
             self.tensorized_fkine = self.robot.forward_kinematics
+        elif isinstance(self.robot, ManiskillRobot):
+            self.unique_position_link_names = [link.name for link in self.robot.robot.links]
+            self.tensorized_fkine = self.tensorized_fkine_single_robot
         else:
             for link_body in self.robot._bodies:
                 if torch.any(link_body.joint_trans() != 0):
@@ -388,7 +391,12 @@ class ForwardKinematicsDiffCo(RBFDiffCo, CollisionChecker):
         fk_dict = self.fkine(q, return_collision=return_collision)
         # Stack the positions of every piece of every link. By default only joint poses are stacked,
         # i.e., one piece for each link in self.unique_position_link_names
-        fk_tensor = torch.stack([pos for link_name in self.unique_position_link_names for pos, _ in fk_dict[link_name]], dim=-1)
+        # fk_tensor = torch.stack([pos for link_name in self.unique_position_link_names for pos, _ in fk_dict[link_name]], dim=-1)
+        fk_tensor_list = []
+        for link_name in self.unique_position_link_names:
+            pos, _ = fk_dict[link_name]
+            fk_tensor_list.append(pos)
+        fk_tensor = torch.stack(fk_tensor_list, dim=-1)
         # end_time = time.time()
         # print(f'tensor FK time: {end_time-start_time:.6f}s')
         return fk_tensor
