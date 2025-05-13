@@ -70,10 +70,10 @@ class ManiskillRobot(RobotInterfaceBase):
     # indicating whether each configuration is in collision
     def collision(self, q, other=None):
         return torch.tensor([
-            1.0 if (len(self.planner.check_for_self_collision(state=qpos)) > 0 or 
-                len(self.planner.check_for_env_collision(state=qpos)) > 0) else -1
+            (len(self.planner.check_for_self_collision(state=qpos)) > 0 or 
+                len(self.planner.check_for_env_collision(state=qpos)) > 0)
             for qpos in q
-        ])
+        ], dtype=torch.bool, device=self._device)
 
     # for q = [batch_size x n_dofs], return a dict of
     # {link_name: [translation, rotation]} for each link
