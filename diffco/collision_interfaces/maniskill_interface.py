@@ -7,6 +7,7 @@ from mani_skill.envs.sapien_env import BaseEnv
 from mplib.pymp import Pose
 from .robot_interface_base import RobotInterfaceBase
 from gymnasium.core import Env
+import pytorch_kinematics as pk
 import torch
 
 class ManiskillRobot(RobotInterfaceBase):
@@ -59,11 +60,15 @@ class ManiskillRobot(RobotInterfaceBase):
 
         # get robot joint limits
         self.joint_limits = self.planner.joint_limits
+        self.dof = len(self.joint_limits)
+
+        # pytorch kinematics
+        self.chain = pk.build_serial_chain_from_urdf(open(urdf_path).read(), end_link_name=move_group)
 
     # return num_configs amount of random configurations
     # which is an array of shape (num_configs, num_dofs)
     def rand_configs(self, num_configs):
-        rand = torch.rand(num_configs, len(self.joint_limits), device=self._device)
+        rand = torch.rand(num_configs, self.dof, device=self._device)
         return torch.tensor(rand * (self.joint_limits[:, 1] - self.joint_limits[:, 0]) + self.joint_limits[:, 0], dtype=torch.float32)
 
     # for q = [batch_size x n_dofs], return a list of [batch_size] bools
@@ -78,7 +83,6 @@ class ManiskillRobot(RobotInterfaceBase):
     # for q = [batch_size x n_dofs], return a dict of
     # {link_name: [translation, rotation]} for each link
     # where translation is of shape (batch_size, 3,) and rotation is of shape (batch_size, 9,)
-    # return (num_configs, num_joints, 3) tensor
     def compute_forward_kinematics_all_links(self, q, return_collision=False):
         if return_collision:
             raise NotImplementedError('Collision checking not implemented for forward kinematics')
@@ -94,7 +98,10 @@ class ManiskillRobot(RobotInterfaceBase):
                 pose = model.get_link_pose(self.planner.link_name_2_idx[link_name])
                 link_poses[link_name][0][i] = torch.tensor(pose.p, dtype=torch.float32)
 
-                # trans_matrix = pose.to_transformation_matrix()
-                # rotation = torch.tensor(trans_matrix[:3,:3])
-                # link_poses[link_name][1][i] = torch.flatten(rotation)
+                trans_matrix = pose.to_transformation_matrix()
+                rotation = torch.tensor(trans_matrix[:3,:3])
+                link_poses[link_name][1][i] = torch.flatten(rotation)
         return link_poses
+    
+    def fkine(self, q, reuse=False):
+        return self.compute_forward_kinematics_all_links(q, reuse)
