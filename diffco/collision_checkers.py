@@ -354,7 +354,7 @@ class ForwardKinematicsDiffCo(RBFDiffCo, CollisionChecker):
             self.tensorized_fkine = self.robot.forward_kinematics
         elif isinstance(self.robot, ManiskillRobot):
             self.unique_position_link_names = [link.name for link in self.robot.robot.links]
-            self.tensorized_fkine = self.tensorized_fkine_single_robot
+            self.tensorized_fkine = self.robot.fkine
         else:
             for link_body in self.robot._bodies:
                 if torch.any(link_body.joint_trans() != 0):

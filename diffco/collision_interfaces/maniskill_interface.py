@@ -1,3 +1,4 @@
+import time
 import sapien
 import mplib
 import numpy as np
@@ -60,16 +61,17 @@ class ManiskillRobot(RobotInterfaceBase):
 
         # get robot joint limits
         self.joint_limits = self.planner.joint_limits
+        self.limits = torch.tensor(self.planner.joint_limits, dtype=torch.float64)
         self.dof = len(self.joint_limits)
 
         # pytorch kinematics
-        self.chain = pk.build_serial_chain_from_urdf(open(urdf_path).read(), end_link_name=move_group)
+        self.chain = pk.build_chain_from_urdf(open(urdf_path).read())
 
     # return num_configs amount of random configurations
     # which is an array of shape (num_configs, num_dofs)
     def rand_configs(self, num_configs):
-        rand = torch.rand(num_configs, self.dof, device=self._device)
-        return torch.tensor(rand * (self.joint_limits[:, 1] - self.joint_limits[:, 0]) + self.joint_limits[:, 0], dtype=torch.float32)
+        rand = torch.rand(num_configs, self.dof, device=self._device, dtype=torch.float64)
+        return torch.tensor(rand * (self.joint_limits[:, 1] - self.joint_limits[:, 0]) + self.joint_limits[:, 0], dtype=torch.float64)
 
     # for q = [batch_size x n_dofs], return a list of [batch_size] bools
     # indicating whether each configuration is in collision
@@ -96,12 +98,36 @@ class ManiskillRobot(RobotInterfaceBase):
             model.compute_forward_kinematics(q[i])
             for link_name in self.planner.link_name_2_idx:
                 pose = model.get_link_pose(self.planner.link_name_2_idx[link_name])
-                link_poses[link_name][0][i] = torch.tensor(pose.p, dtype=torch.float32)
+                link_poses[link_name][0][i] = torch.tensor(pose.p, dtype=torch.float64)
 
                 trans_matrix = pose.to_transformation_matrix()
                 rotation = torch.tensor(trans_matrix[:3,:3])
                 link_poses[link_name][1][i] = torch.flatten(rotation)
         return link_poses
-    
-    def fkine(self, q, reuse=False):
-        return self.compute_forward_kinematics_all_links(q, reuse)
+
+    # compute forward kinematics for the robot 
+    # input : q = (batch_size, n_dofs) tensor
+    # output = (batch_size, 3, num_links) tensor
+    def fkine(self, q, return_collision=False, reuse=False):
+        if return_collision:
+            raise NotImplementedError('Collision checking not implemented for forward kinematics')
+        if reuse:
+            raise NotImplementedError('Reuse not implemented for forward kinematics')
+        q = q.to(torch.float32)
+        batch_size = q.shape[0]
+        links = {}
+        link_names = self.chain.get_link_names()
+        for link_name in link_names:
+            links[link_name] = torch.empty(batch_size, 3)
+        for i in range(batch_size):
+            fk_dict = self.chain.forward_kinematics(q[i])
+            for link_name in fk_dict.keys():
+                # link_idx = self.chain.frame_to_idx[link_name]
+                links[link_name][i] = fk_dict[link_name]._matrix[:, :3, 3]
+        # (29, batch_size, 3)
+        fk_tensor_list = []
+        for link_name in link_names:
+            fk_tensor_list.append(links[link_name])
+        fk_tensor = torch.stack(fk_tensor_list, dim=-1)
+        # (29, batch_size, 3) -> (batch_size, 29, 3)
+        return fk_tensor.to(torch.float64)

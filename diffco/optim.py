@@ -379,7 +379,7 @@ def trustconstr_traj_optimize(robot, dist_est, start_cfg, target_cfg, options):
         
     def hess_con_collision_free(p, v):
         var_p_collision = pre_process(p)
-        var_v = torch.tensor(v, dtype=torch.float32)
+        var_v = torch.tensor(v, dtype=torch.float64)
         hess = torch.autograd.functional.hessian(
             lambda x: torch.dot(con_collision_free(x, return_tensor=True), var_v), 
             var_p_collision,
